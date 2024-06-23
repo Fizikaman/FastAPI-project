@@ -1,36 +1,63 @@
-from fastapi import FastAPI, status, Body
+from fastapi import FastAPI, status, Body, HTTPException, Request, Form
+from pydantic import BaseModel
+from fastapi.templating import Jinja2Templates
+from fastapi.responses import HTMLResponse
 
 app = FastAPI()
+templates = Jinja2Templates(directory="templates")
 
 
-messages_db = {"0": "First post in FastAPI"}
+class Message(BaseModel):
+    id: int = None
+    text: str
+
+    model_config = {
+        "json_schema_extra": {
+            "examples":
+                [
+                    {
+                        "text": "Simple message",
+                    }
+                ]
+        }
+    }
+
+
+messages_db = []
 
 
 @app.get("/")
-async def get_all_messages() -> dict:
-    return messages_db
+async def get_all_messages(request: Request) -> HTMLResponse:
+    return templates.TemplateResponse("message.html", {"request": request, "messages": messages_db})
 
 
-@app.get("/message/{message_id}")
-async def get_message(message_id: str) -> str:
-    return messages_db[message_id]
+@app.get(path="/message/{message_id}")
+async def get_message(request: Request, message_id: int) -> HTMLResponse:
+    try:
+        return templates.TemplateResponse("message.html", {"request": request, "message": messages_db[message_id]})
+    except IndexError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Message not found")
 
 
-@app.post("/message", status_code=status.HTTP_201_CREATED)
-async def create_message(message: str = Body()) -> str:
-    current_index = str(int(max(messages_db, key=int)) + 1)
-    messages_db[current_index] = message
-    return f"Message created: {message}"
+@app.post("/", status_code=status.HTTP_201_CREATED)
+async def create_message(request: Request, message: str = Form()) -> HTMLResponse:
+    if messages_db:
+        max_id_message = max(messages_db, key=lambda m: m.id).id + 1
+    else:
+        max_id_message = 0
+    messages_db.append(Message(id=max_id_message, text=message))
+    return templates.TemplateResponse("message.html", {"request": request, "messages": messages_db})
 
 
 @app.put("/message/{message_id}")
-async def update_message(message_id: str, message: str = Body()) -> str:
-    messages_db[message_id] = message
+async def update_message(message_id: int, message: str = Body()) -> str:
+    edit_message = messages_db[message_id]
+    edit_message.text = message
     return f"Message with id={message_id} updated"
 
 
 @app.delete("/message/{message_id}")
-async def delete_message(message_id: str) -> str:
+async def delete_message(message_id: int) -> str:
     messages_db.pop(message_id)
     return f"Message with id={message_id} deleted!"
 
